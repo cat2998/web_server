@@ -38,6 +38,7 @@ int main(int argc, char **argv)
 	{
 		clientlen = sizeof(clientaddr);
 		connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
+		// printf("\n\nfd num: %d\n\n", connfd);
 		Getnameinfo((SA *)&clientaddr, clientlen, hostname, MAXLINE, port, MAXLINE, 0);
 		printf("Accepted connection from (%s, %s)\n", hostname, port);
 		doit(connfd);
