@@ -38,9 +38,8 @@ int main(int argc, char **argv)
 	{
 		clientlen = sizeof(clientaddr);
 		connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
-		// printf("\n\nfd num: %d\n\n", connfd);
 		Getnameinfo((SA *)&clientaddr, clientlen, hostname, MAXLINE, port, MAXLINE, 0);
-		printf("Accepted connection from (%s, %s)\n", hostname, port);
+		printf("== Accepted connection from (%s, %s) ==\n", hostname, port);
 		doit(connfd);
 		Close(connfd);
 	}
@@ -58,7 +57,7 @@ void doit(int fd)
 	Rio_readinitb(&rio, fd);
 	Rio_readlineb(&rio, buf, MAXLINE);
 	sscanf(buf, "%s %s %s", method, uri, version);
-	printf("Request headers\n");
+	printf("========== Request headers ==========\n");
 	printf("%s", buf);
 	if (strcasecmp(method, "GET") != 0 && strcasecmp(method, "HEAD") != 0)
 	{
@@ -99,7 +98,6 @@ void read_requesthdrs(rio_t *rp)
 {
 	char buf[MAXLINE];
 
-	Rio_readlineb(rp, buf, MAXLINE);
 	while (strcmp(buf, "\r\n"))
 	{
 		Rio_readlineb(rp, buf, MAXLINE);
@@ -173,7 +171,7 @@ void serve_static(int fd, char *filename, int filesize, char *method)
 	sprintf(buf, "%sConnection: close\r\n", buf);
 	sprintf(buf, "%sContent-length: %d\r\n", buf, filesize);
 	sprintf(buf, "%sContent-type: %s\r\n\r\n", buf, filetype);
-	printf("Response headers: \n");
+	printf("========== Response headers ==========\n");
 	printf("%s", buf);
 	Rio_writen(fd, buf, strlen(buf));
 

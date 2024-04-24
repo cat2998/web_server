@@ -6,7 +6,7 @@
 #define MAX_OBJECT_SIZE 102400
 
 void doit(int fd);
-void make_request_header(rio_t *rp, char *buf);
+void make_request_header(rio_t *rp, char *host, char *buf);
 void read_requesthdrs(rio_t *rp);
 int parse_uri(char *uri, char *host, char *port, char *path);
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
@@ -45,7 +45,7 @@ int main(int argc, char **argv)
 		connfdp = malloc(sizeof(int));
 		*connfdp = Accept(listenfd, (SA *)&clientaddr, &clientlen);
 		Getnameinfo((SA *)&clientaddr, clientlen, hostname, MAXLINE, port, MAXLINE, 0);
-		printf("==Accepted connection from (%s, %s)==\n", hostname, port);
+		printf("\n== Accepted connection from (%s, %s) ==\n\n", hostname, port);
 		Pthread_create(&tid, NULL, thread, connfdp);
 	}
 }
@@ -73,26 +73,29 @@ void doit(int fd)
 	Rio_readinitb(&rio, fd);
 	Rio_readlineb(&rio, buf, MAXLINE);
 
-	printf("==========Request headers==========\n");
+	printf("========== Request headers ==========\n");
 	printf("%s\n", buf);
 
 	sscanf(buf, "%s %s %s", method, uri, version);
+	if (strstr(uri, "favicon.ico") > 0)
+		return;
 	parse_uri(uri, host, port, path);
 
 	/* 현재 요청이 캐싱된 요청인지 확인 */
 	cached_object = find_cache(uri);
 	if (cached_object)
 	{
+		printf("========== cache hits ==========\n");
 		send_cache(cached_object, fd);
 		read_cache(cached_object);
 		return;
 	}
 
 	/* request header 만들기 */
-	printf("==========send to server Request headers==========\n");
+	printf("========== send to server Request headers ==========\n");
 	sprintf(buf, "%s %s %s\r\n", method, path, "HTTP/1.0");
-	make_request_header(&rio, buf);
-	printf("%s\n", buf);
+	make_request_header(&rio, host, buf);
+	printf("%s", buf);
 
 	if (strcasecmp(method, "GET") != 0)
 	{
@@ -109,7 +112,7 @@ void doit(int fd)
 	}
 	Rio_writen(serverfd, buf, strlen(buf));
 
-	/* 서버에서 response body 받고 content-lenght 저장해서 client에 전송 */
+	/* 서버에서 response header에서 content-lenght저장하고 header, body client에 전송 */
 	Rio_readinitb(&rio, serverfd);
 	while (strcmp(buf, "\r\n"))
 	{
@@ -121,7 +124,7 @@ void doit(int fd)
 	response_buf = (char *)malloc(response_size);
 	Rio_readnb(&rio, response_buf, response_size);
 	Rio_writen(fd, response_buf, response_size);
-	printf("==========from server, send to client response body==========%s\n\n", response_buf);
+	printf("===== from server, send to client response body =====\n%s", response_buf);
 
 	/* 캐시할 수 있는 사이즈면 캐시저장 */
 	if (response_size <= MAX_OBJECT_SIZE)
@@ -138,26 +141,52 @@ void doit(int fd)
 	close(serverfd);
 }
 
-void make_request_header(rio_t *rp, char *request_header)
+void make_request_header(rio_t *rp, char *host, char *request_header)
 {
 	char buf[MAXLINE];
+	int is_host = 0, is_user = 0, is_connect = 0, is_prox_connect = 0;
 
-	Rio_readlineb(rp, buf, MAXLINE);
-	// sprintf(request_header, "%s%s", request_header, user_agent_hdr);
-	// sprintf(request_header, "%s%s", request_header, user_agent_hdr);
-	// sprintf(request_header, "%sProxy-Connection: close\r\n", request_header);
 	while (strcmp(buf, "\r\n"))
 	{
 		Rio_readlineb(rp, buf, MAXLINE);
+		if (strstr(buf, "Host: ") != NULL)
+		{
+			is_host = 1;
+			sprintf(request_header, "%sHost: %s\r\n", request_header, host);
+			continue;
+		}
 		if (strstr(buf, "User-Agent: ") != NULL)
+		{
+			is_user = 1;
 			sprintf(request_header, "%s%s", request_header, user_agent_hdr);
+			continue;
+		}
 		else if (strstr(buf, "Connection: ") != NULL)
+		{
+			is_connect = 1;
 			sprintf(request_header, "%sConnection: close\r\n", request_header);
+			continue;
+		}
 		else if (strstr(buf, "Proxy-Connection: ") != NULL)
+		{
+			is_prox_connect = 1;
 			sprintf(request_header, "%sProxy-Connection: close\r\n", request_header);
-		else
+			continue;
+		}
+		else if (strcmp(buf, "\r\n") != 0)
 			sprintf(request_header, "%s%s", request_header, buf);
 	}
+
+	if (is_host == 0)
+		sprintf(request_header, "%sHost: %s\r\n", request_header, host);
+	if (is_user == 0)
+		sprintf(request_header, "%s%s", request_header, user_agent_hdr);
+	if (is_connect == 0)
+		sprintf(request_header, "%sConnection: close\r\n", request_header);
+	if (is_prox_connect == 0)
+		sprintf(request_header, "%sProxy-Connection: close\r\n", request_header);
+
+	sprintf(request_header, "%s\r\n", request_header);
 	return;
 }
 
@@ -192,7 +221,12 @@ int parse_uri(char *uri, char *host, char *port, char *path)
 
 	start = strstr(uri, "//");
 	if (start == NULL)
-		strcpy(host, uri);
+	{
+		if (strstr(uri, "/") == uri)
+			strcpy(host, uri + 1);
+		else
+			strcpy(host, uri);
+	}
 	else
 		strcpy(host, start + 2);
 
