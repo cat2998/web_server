@@ -17,9 +17,9 @@ void send_cache(web_object_t *web_object, int serverfd);
 void read_cache(web_object_t *web_object);
 void write_cache(web_object_t *web_object);
 
-web_object_t *rootp;  // 캐시 연결리스트의 root 객체
-web_object_t *lastp;  // 캐시 연결리스트의 마지막 객체
-int total_cache_size; // 캐싱된 객체 크기의 총합
+web_object_t *rootp;
+web_object_t *lastp;
+int total_cache_size;
 
 int main(int argc, char **argv)
 {
@@ -45,7 +45,7 @@ int main(int argc, char **argv)
 		connfdp = malloc(sizeof(int));
 		*connfdp = Accept(listenfd, (SA *)&clientaddr, &clientlen);
 		Getnameinfo((SA *)&clientaddr, clientlen, hostname, MAXLINE, port, MAXLINE, 0);
-		printf("Accepted connection from (%s, %s)\n", hostname, port);
+		printf("==Accepted connection from (%s, %s)==\n", hostname, port);
 		Pthread_create(&tid, NULL, thread, connfdp);
 	}
 }
@@ -73,7 +73,7 @@ void doit(int fd)
 	Rio_readinitb(&rio, fd);
 	Rio_readlineb(&rio, buf, MAXLINE);
 
-	printf("Request headers\n");
+	printf("==========Request headers==========\n");
 	printf("%s\n", buf);
 
 	sscanf(buf, "%s %s %s", method, uri, version);
@@ -89,8 +89,8 @@ void doit(int fd)
 	}
 
 	/* request header 만들기 */
+	printf("==========send to server Request headers==========\n");
 	sprintf(buf, "%s %s %s\r\n", method, path, "HTTP/1.0");
-	printf("send to server Request headers\n");
 	make_request_header(&rio, buf);
 	printf("%s\n", buf);
 
@@ -118,9 +118,10 @@ void doit(int fd)
 			sscanf(buf, "Content-length: %d", &response_size);
 		Rio_writen(fd, buf, strlen(buf));
 	}
-	response_buf = (char *)malloc(sizeof(int) * response_size);
+	response_buf = (char *)malloc(response_size);
 	Rio_readnb(&rio, response_buf, response_size);
 	Rio_writen(fd, response_buf, response_size);
+	printf("==========from server, send to client response body==========%s\n\n", response_buf);
 
 	/* 캐시할 수 있는 사이즈면 캐시저장 */
 	if (response_size <= MAX_OBJECT_SIZE)
@@ -142,17 +143,21 @@ void make_request_header(rio_t *rp, char *request_header)
 	char buf[MAXLINE];
 
 	Rio_readlineb(rp, buf, MAXLINE);
+	// sprintf(request_header, "%s%s", request_header, user_agent_hdr);
+	// sprintf(request_header, "%s%s", request_header, user_agent_hdr);
+	// sprintf(request_header, "%sProxy-Connection: close\r\n", request_header);
 	while (strcmp(buf, "\r\n"))
 	{
 		Rio_readlineb(rp, buf, MAXLINE);
-		if (strcmp(buf, "User-Agent:") == 0 || strcmp(buf, "Connection:") == 0 || strcmp(buf, "Proxy-Connection:") == 0)
-			continue;
-		strcat(request_header, buf);
+		if (strstr(buf, "User-Agent: ") != NULL)
+			sprintf(request_header, "%s%s", request_header, user_agent_hdr);
+		else if (strstr(buf, "Connection: ") != NULL)
+			sprintf(request_header, "%sConnection: close\r\n", request_header);
+		else if (strstr(buf, "Proxy-Connection: ") != NULL)
+			sprintf(request_header, "%sProxy-Connection: close\r\n", request_header);
+		else
+			sprintf(request_header, "%s%s", request_header, buf);
 	}
-	strcat(request_header, user_agent_hdr);
-	strcat(request_header, "Connection: close\r\n");
-	strcat(request_header, "Proxy-Connection: close\r\n");
-	strcat(request_header, "\r\n");
 	return;
 }
 
@@ -254,7 +259,9 @@ void read_cache(web_object_t *web_object)
 		web_object->prev->next = NULL;
 
 	web_object->next = rootp;
+	rootp->prev = web_object;
 	rootp = web_object;
+	web_object->prev = NULL;
 }
 
 void write_cache(web_object_t *web_object)
